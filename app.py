@@ -67,7 +67,8 @@ hands.onResults(results=>{
   smoothX=prevX+(ix-prevX)/SMOOTH; smoothY=prevY+(iy-prevY)/SMOOTH;
   prevX=smoothX; prevY=smoothY;
 
-  cursor.style.left=(640-smoothX)+'px'; cursor.style.top=smoothY+'px';
+  cursor.style.left=smoothX+'px'; cursor.style.top=smoothY+'px';
+
 
   if(indexUp&&!middleUp){
     status.textContent='☝️ MOVE MODE'; cursor.className='';
