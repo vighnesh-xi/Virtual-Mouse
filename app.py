@@ -1,5 +1,5 @@
 import os
-os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"  # Force CPU before any mediapipe import
+os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
 
 import streamlit as st
 import cv2
@@ -18,7 +18,16 @@ st.markdown("""
 RTC_CONFIGURATION = {
     "iceServers": [
         {"urls": ["stun:stun.l.google.com:19302"]},
-        {"urls": ["stun:stun1.l.google.com:19302"]},
+        {
+            "urls": ["turn:openrelay.metered.ca:80"],
+            "username": "openrelayproject",
+            "credential": "openrelayproject",
+        },
+        {
+            "urls": ["turn:openrelay.metered.ca:443"],
+            "username": "openrelayproject",
+            "credential": "openrelayproject",
+        },
     ]
 }
 
@@ -38,8 +47,6 @@ class HandTrackingProcessor(VideoProcessorBase):
 
         if len(lmList) != 0:
             xIndex, yIndex = lmList[8][1], lmList[8][2]
-            xMiddle, yMiddle = lmList[12][1], lmList[12][2]
-
             fingersState = self.detector.fingersUp()
 
             cv2.rectangle(
@@ -49,13 +56,11 @@ class HandTrackingProcessor(VideoProcessorBase):
                 (255, 0, 255), 2
             )
 
-            # Index only → Move mode
             if fingersState[1] == 1 and fingersState[2] == 0:
                 cv2.circle(img, (xIndex, yIndex), 15, (255, 0, 255), cv2.FILLED)
                 cv2.putText(img, "MOVE MODE", (10, 50),
                             cv2.FONT_HERSHEY_PLAIN, 2, (255, 0, 255), 2)
 
-            # Index + Middle → Click mode
             if fingersState[1] == 1 and fingersState[2] == 1:
                 distance, img, lineInfo = self.detector.findDistance(8, 12, img)
                 cv2.putText(img, "CLICK MODE", (10, 50),
@@ -71,7 +76,7 @@ class HandTrackingProcessor(VideoProcessorBase):
 webrtc_streamer(
     key="hand-tracking",
     video_processor_factory=HandTrackingProcessor,
-    rtc_configuration=RTC_CONFIGURATION,   # ← fixes NoneType/ICE error
+    rtc_configuration=RTC_CONFIGURATION,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
