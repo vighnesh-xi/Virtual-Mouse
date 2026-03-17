@@ -6,25 +6,59 @@ from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 import av
 
 st.title("Hand Tracking Demo")
-st.write("Show your hand to the camera. Index finger = move | Index + Middle = click")
+st.write("Show your hand to the camera.")
+st.markdown("""
+- ☝️ **Index finger only** → Move cursor  
+- ✌️ **Index + Middle finger** → Click  
+""")
 
-detector = htm.handDetector(maxHands=1)
 
 class HandTrackingProcessor(VideoProcessorBase):
+    def __init__(self):
+        self.detector = htm.handDetector(maxHands=1)
+        self.frameReduction = 100
+        self.widthCam = 640
+        self.heightCam = 480
+
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         img = frame.to_ndarray(format="bgr24")
 
-        img = detector.findHands(img)
-        lmList, bbox = detector.findPosition(img, draw=False)
+        # Find hands and landmarks
+        img = self.detector.findHands(img)
+        lmList, bbox = self.detector.findPosition(img, draw=False)
 
         if len(lmList) != 0:
-            # Draw index finger tip
-            x, y = lmList[8][1], lmList[8][2]
-            cv2.circle(img, (x, y), 12, (255, 0, 255), cv2.FILLED)
-            cv2.putText(img, f"Index: ({x},{y})", (10, 40),
-                        cv2.FONT_HERSHEY_PLAIN, 1.5, (0, 255, 0), 2)
+            xIndex, yIndex = lmList[8][1], lmList[8][2]
+            xMiddle, yMiddle = lmList[12][1], lmList[12][2]
+
+            fingersState = self.detector.fingersUp()
+
+            # Draw boundary rectangle
+            cv2.rectangle(
+                img,
+                (self.frameReduction, self.frameReduction),
+                (self.widthCam - self.frameReduction, self.heightCam - self.frameReduction),
+                (255, 0, 255), 2
+            )
+
+            # Mode 1: Index finger up only → Moving mode
+            if fingersState[1] == 1 and fingersState[2] == 0:
+                cv2.circle(img, (xIndex, yIndex), 15, (255, 0, 255), cv2.FILLED)
+                cv2.putText(img, "MOVE MODE", (10, 50),
+                            cv2.FONT_HERSHEY_PLAIN, 2, (255, 0, 255), 2)
+
+            # Mode 2: Index + Middle finger up → Click mode
+            if fingersState[1] == 1 and fingersState[2] == 1:
+                distance, img, lineInfo = self.detector.findDistance(8, 12, img)
+                cv2.putText(img, "CLICK MODE", (10, 50),
+                            cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 0), 2)
+                if distance < 40:
+                    cv2.circle(img, (lineInfo[4], lineInfo[5]), 15, (0, 255, 0), cv2.FILLED)
+                    cv2.putText(img, "CLICKED!", (10, 90),
+                                cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 0), 2)
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
+
 
 webrtc_streamer(
     key="hand-tracking",
