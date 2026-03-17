@@ -3,83 +3,60 @@ os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
 
 import streamlit as st
 import cv2
-import HandTrackingModule as htm
 import numpy as np
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
-import av
-import requests
-from requests.auth import HTTPBasicAuth
+import HandTrackingModule as htm
 
 st.title("Hand Tracking Demo")
-st.write("Show your hand to the camera.")
-st.markdown("""
-- ☝️ **Index finger only** → Move cursor  
-- ✌️ **Index + Middle finger** → Click  
-""")
+st.write("Allow camera access, then show your hand!")
 
-# --- Twilio TURN server (fetch fresh ICE tokens) ---
-def get_ice_servers():
-    account_sid = st.secrets["TWILIO_ACCOUNT_SID"]
-    auth_token   = st.secrets["TWILIO_AUTH_TOKEN"]
-    try:
-        response = requests.post(
-            f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Tokens.json",
-            auth=HTTPBasicAuth(account_sid, auth_token),
-        )
-        token = response.json()
-        return token["ice_servers"]
-    except Exception:
-        # Fallback to Google STUN only
-        return [{"urls": ["stun:stun.l.google.com:19302"]}]
+detector = htm.handDetector(maxHands=1)
 
-RTC_CONFIGURATION = {"iceServers": get_ice_servers()}
+img_file = st.camera_input("Show your hand to the camera")
 
+if img_file is not None:
+    # Decode image from browser camera
+    file_bytes = np.frombuffer(img_file.getvalue(), np.uint8)
+    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-class HandTrackingProcessor(VideoProcessorBase):
-    def __init__(self):
-        self.detector = htm.handDetector(maxHands=1)
-        self.frameReduction = 100
-        self.widthCam = 640
-        self.heightCam = 480
+    # Run hand detection
+    img = detector.findHands(img)
+    lmList, bbox = detector.findPosition(img, draw=False)
 
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        img = frame.to_ndarray(format="bgr24")
+    if len(lmList) != 0:
+        fingersState = detector.fingersUp()
+        fingers_up = sum(fingersState)
 
-        img = self.detector.findHands(img)
-        lmList, bbox = self.detector.findPosition(img, draw=False)
+        xIndex, yIndex = lmList[8][1], lmList[8][2]
 
-        if len(lmList) != 0:
-            xIndex, yIndex = lmList[8][1], lmList[8][2]
-            fingersState = self.detector.fingersUp()
+        # Draw bounding box
+        cv2.rectangle(img, (bbox[0]-20, bbox[1]-20),
+                      (bbox[2]+20, bbox[3]+20), (0, 255, 0), 2)
 
-            cv2.rectangle(
-                img,
-                (self.frameReduction, self.frameReduction),
-                (self.widthCam - self.frameReduction, self.heightCam - self.frameReduction),
-                (255, 0, 255), 2
-            )
+        # Index only → Move
+        if fingersState[1] == 1 and fingersState[2] == 0:
+            cv2.circle(img, (xIndex, yIndex), 15, (255, 0, 255), cv2.FILLED)
+            cv2.putText(img, "MOVE MODE", (10, 50),
+                        cv2.FONT_HERSHEY_PLAIN, 2, (255, 0, 255), 2)
+            st.success(f"☝️ MOVE MODE — Index tip at ({xIndex}, {yIndex})")
 
-            if fingersState[1] == 1 and fingersState[2] == 0:
-                cv2.circle(img, (xIndex, yIndex), 15, (255, 0, 255), cv2.FILLED)
-                cv2.putText(img, "MOVE MODE", (10, 50),
-                            cv2.FONT_HERSHEY_PLAIN, 2, (255, 0, 255), 2)
-
-            if fingersState[1] == 1 and fingersState[2] == 1:
-                distance, img, lineInfo = self.detector.findDistance(8, 12, img)
-                cv2.putText(img, "CLICK MODE", (10, 50),
+        # Index + Middle → Click
+        elif fingersState[1] == 1 and fingersState[2] == 1:
+            distance, img, lineInfo = detector.findDistance(8, 12, img)
+            cv2.putText(img, "CLICK MODE", (10, 50),
+                        cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 0), 2)
+            if distance < 40:
+                cv2.circle(img, (lineInfo[4], lineInfo[5]), 15, (0, 255, 0), cv2.FILLED)
+                cv2.putText(img, "CLICKED!", (10, 90),
                             cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 0), 2)
-                if distance < 40:
-                    cv2.circle(img, (lineInfo[4], lineInfo[5]), 15, (0, 255, 0), cv2.FILLED)
-                    cv2.putText(img, "CLICKED!", (10, 90),
-                                cv2.FONT_HERSHEY_PLAIN, 2, (0, 255, 0), 2)
+                st.success("✌️ CLICK detected!")
+            else:
+                st.info(f"✌️ CLICK MODE — fingers distance: {int(distance)}px")
 
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+        else:
+            st.info(f"🖐️ {fingers_up} finger(s) detected")
 
-
-webrtc_streamer(
-    key="hand-tracking",
-    video_processor_factory=HandTrackingProcessor,
-    rtc_configuration=RTC_CONFIGURATION,
-    media_stream_constraints={"video": True, "audio": False},
-    async_processing=True,
-)
+        # Show result
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        st.image(img_rgb, caption="Hand Detection Result", use_container_width=True)
+    else:
+        st.warning("No hand detected. Try again!")
