@@ -1,3 +1,6 @@
+import os
+os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"  # Force CPU before any mediapipe import
+
 import streamlit as st
 import cv2
 import HandTrackingModule as htm
@@ -12,6 +15,13 @@ st.markdown("""
 - ✌️ **Index + Middle finger** → Click  
 """)
 
+RTC_CONFIGURATION = {
+    "iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["stun:stun1.l.google.com:19302"]},
+    ]
+}
+
 
 class HandTrackingProcessor(VideoProcessorBase):
     def __init__(self):
@@ -23,7 +33,6 @@ class HandTrackingProcessor(VideoProcessorBase):
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
         img = frame.to_ndarray(format="bgr24")
 
-        # Find hands and landmarks
         img = self.detector.findHands(img)
         lmList, bbox = self.detector.findPosition(img, draw=False)
 
@@ -33,7 +42,6 @@ class HandTrackingProcessor(VideoProcessorBase):
 
             fingersState = self.detector.fingersUp()
 
-            # Draw boundary rectangle
             cv2.rectangle(
                 img,
                 (self.frameReduction, self.frameReduction),
@@ -41,13 +49,13 @@ class HandTrackingProcessor(VideoProcessorBase):
                 (255, 0, 255), 2
             )
 
-            # Mode 1: Index finger up only → Moving mode
+            # Index only → Move mode
             if fingersState[1] == 1 and fingersState[2] == 0:
                 cv2.circle(img, (xIndex, yIndex), 15, (255, 0, 255), cv2.FILLED)
                 cv2.putText(img, "MOVE MODE", (10, 50),
                             cv2.FONT_HERSHEY_PLAIN, 2, (255, 0, 255), 2)
 
-            # Mode 2: Index + Middle finger up → Click mode
+            # Index + Middle → Click mode
             if fingersState[1] == 1 and fingersState[2] == 1:
                 distance, img, lineInfo = self.detector.findDistance(8, 12, img)
                 cv2.putText(img, "CLICK MODE", (10, 50),
@@ -63,6 +71,7 @@ class HandTrackingProcessor(VideoProcessorBase):
 webrtc_streamer(
     key="hand-tracking",
     video_processor_factory=HandTrackingProcessor,
+    rtc_configuration=RTC_CONFIGURATION,   # ← fixes NoneType/ICE error
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
