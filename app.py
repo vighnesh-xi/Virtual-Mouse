@@ -7,6 +7,8 @@ import HandTrackingModule as htm
 import numpy as np
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 import av
+import requests
+from requests.auth import HTTPBasicAuth
 
 st.title("Hand Tracking Demo")
 st.write("Show your hand to the camera.")
@@ -15,21 +17,22 @@ st.markdown("""
 - ✌️ **Index + Middle finger** → Click  
 """)
 
-RTC_CONFIGURATION = {
-    "iceServers": [
-        {"urls": ["stun:stun.l.google.com:19302"]},
-        {
-            "urls": ["turn:openrelay.metered.ca:80"],
-            "username": "openrelayproject",
-            "credential": "openrelayproject",
-        },
-        {
-            "urls": ["turn:openrelay.metered.ca:443"],
-            "username": "openrelayproject",
-            "credential": "openrelayproject",
-        },
-    ]
-}
+# --- Twilio TURN server (fetch fresh ICE tokens) ---
+def get_ice_servers():
+    account_sid = st.secrets["TWILIO_ACCOUNT_SID"]
+    auth_token   = st.secrets["TWILIO_AUTH_TOKEN"]
+    try:
+        response = requests.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Tokens.json",
+            auth=HTTPBasicAuth(account_sid, auth_token),
+        )
+        token = response.json()
+        return token["ice_servers"]
+    except Exception:
+        # Fallback to Google STUN only
+        return [{"urls": ["stun:stun.l.google.com:19302"]}]
+
+RTC_CONFIGURATION = {"iceServers": get_ice_servers()}
 
 
 class HandTrackingProcessor(VideoProcessorBase):
